@@ -12,4 +12,4 @@ Build:
 
     $ mvn clean install source:jar javadoc:jar -DskipTests
     $ cd storm-dist/binary && mvn clean install -Pdist -Dgpg.skip
-    $ cd storm-dist/rpm    && mvn clean deploy -Prpm-dist -Dprovided.target.s3RepositoryPath=/path/to/s3repo
+    $ cd storm-dist/rpm    && mvn clean package -Prpm-dist -Dprovided.target.s3RepositoryPath=/path/to/s3repo
