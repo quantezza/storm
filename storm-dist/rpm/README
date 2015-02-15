@@ -1,0 +1,15 @@
+This directory and submodules define custom packaging of storm, not specifically
+intended to ever be pulled back into storm proper.
+
+The goal here is to create a parameterized custom deployment (eg, rpm) of the storm
+version that *this* branch is based on.
+
+Build:
+
+    - Use Java 6 to build.
+    - Note that no deploy phase is necessary; storm-dist/rpm
+      will deploy as part of package phase.
+
+    $ mvn clean install source:jar javadoc:jar -DskipTests
+    $ cd storm-dist/binary && mvn clean install -Pdist -Dgpg.skip
+    $ cd storm-dist/rpm    && mvn clean deploy -Prpm-dist -Dprovided.target.s3RepositoryPath=/path/to/s3repo

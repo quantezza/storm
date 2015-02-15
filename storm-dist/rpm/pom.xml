@@ -1,0 +1,121 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <artifactId>storm</artifactId>
+        <groupId>org.apache.storm</groupId>
+        <version>0.9.3.atdixon</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+    <!-- note: artifactId here is used also in rpm creation -->
+    <artifactId>apache-storm-rpm</artifactId>
+    <packaging>jar</packaging>
+    <name>apache-storm-rpm</name>
+    <!--
+    NOTE: this POM expects these properties to be provided at build time:
+        provided.target.s3RepositoryPath
+    -->
+    <profiles>
+        <profile>
+            <id>rpm-dist</id>
+            <build>
+                <plugins>
+                    <!-- unback the storm binary dist -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <version>2.10</version>
+                        <executions>
+                            <execution>
+                                <id>unpack</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>unpack</goal>
+                                </goals>
+                                <configuration>
+                                    <artifactItems>
+                                        <artifactItem>
+                                            <groupId>org.apache.storm</groupId>
+                                            <artifactId>apache-storm-bin</artifactId>
+                                            <version>${project.version}</version>
+                                            <type>tar.gz</type>
+                                        </artifactItem>
+                                    </artifactItems>
+                                    <!-- note: archive expands into outputDirectory w/ root folder "apache-storm-${version}" -->
+                                    <outputDirectory>${project.build.directory}/unpacked</outputDirectory>
+                                    <overWriteReleases>true</overWriteReleases>
+                                    <overWriteSnapshots>true</overWriteSnapshots>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <!-- build rpm of storm-dist -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>rpm-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>rpm</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>attached-rpm</goal>
+                                </goals>
+                                <configuration>
+                                    <group>Applications/System</group>
+                                    <!-- Note: RPM coordinates will be: (apache-storm-rpm, ${project.version}, 1) -->
+                                    <name>${project.artifactId}</name>
+                                    <projversion>${project.version}</projversion>
+                                    <classifier>rpm</classifier>
+                                    <mappings>
+                                        <mapping>
+                                            <!-- install into /opt/storm-version so we don't conflict
+                                             w/ any other versions that may exist (eg, support upgrades). -->
+                                            <directory>/opt/storm-${project.version}</directory>
+                                            <filemode>755</filemode>
+                                            <!--<username>root</username>-->
+                                            <!--<groupname>root</groupname>-->
+                                            <sources>
+                                                <source>
+                                                    <!-- ensure rpm does not include the base dir "apache-storm-version" -->
+                                                    <location>${project.build.directory}/unpacked/apache-storm-${project.version}</location>
+                                                </source>
+                                            </sources>
+                                        </mapping>
+                                    </mappings>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin> <!-- deploy rpm to an s3 yum repository (rely on user provided properties) -->
+                        <groupId>com.bazaarvoice.maven.plugins</groupId>
+                        <artifactId>s3repo-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <!-- we use package phase here b/c we don't want to deploy/require deploy of
+                                    *this* pom -->
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>create-update</goal>
+                                </goals>
+                                <configuration>
+                                    <s3RepositoryPath>${provided.target.s3RepositoryPath}</s3RepositoryPath>
+                                    <createrepoOpts>--simple-md-filenames --no-database</createrepoOpts>
+                                    <artifactItems>
+                                        <artifactItem>
+                                            <groupId>${project.groupId}</groupId>
+                                            <artifactId>${project.artifactId}</artifactId>
+                                            <version>${project.version}</version>
+                                            <type>rpm</type>
+                                            <classifier>rpm</classifier>
+                                            <targetSubfolder>${artifactId}</targetSubfolder>
+                                        </artifactItem>
+                                    </artifactItems>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>
