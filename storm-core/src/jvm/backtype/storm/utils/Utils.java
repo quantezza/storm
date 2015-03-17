@@ -27,32 +27,6 @@ import backtype.storm.serialization.SerializationDelegate;
 import clojure.lang.IFn;
 import clojure.lang.RT;
 import org.apache.commons.lang.StringUtils;
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-import java.net.URL;
-import java.net.URLDecoder;
-import java.nio.ByteBuffer;
-import java.nio.channels.Channels;
-import java.nio.channels.WritableByteChannel;
-import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.UUID;
-import java.util.Collection;
-import java.util.Collections;
-
 import org.apache.curator.ensemble.exhibitor.DefaultExhibitorRestClient;
 import org.apache.curator.ensemble.exhibitor.ExhibitorEnsembleProvider;
 import org.apache.curator.ensemble.exhibitor.Exhibitors;
@@ -67,6 +41,28 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
+
+import java.io.BufferedReader;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.URL;
+import java.net.URLDecoder;
+import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.WritableByteChannel;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.UUID;
 
 import java.io.*;
 
@@ -346,6 +342,13 @@ public class Utils {
         }
     }
 
+    public static String getString(Object o) {
+        if (null == o) {
+            throw new IllegalArgumentException("Don't know how to convert null to String");
+        }
+        return o.toString();
+    }
+
     public static Integer getInt(Object o) {
       Integer result = getInt(o, null);
       if (null == result) {
@@ -397,7 +400,7 @@ public class Utils {
 
     public static CuratorFramework newCurator(Map conf, List<String> servers, Object port, String root, ZookeeperAuthInfo auth) {
         List<String> serverPorts = new ArrayList<String>();
-        for(String zkServer: (List<String>) servers) {
+        for(String zkServer: servers) {
             serverPorts.add(zkServer + ":" + Utils.getInt(port));
         }
         String zkStr = StringUtils.join(serverPorts, ",") + root;
@@ -414,7 +417,7 @@ public class Utils {
         if (!exhibitorServers.isEmpty()) {
             // use exhibitor servers
             builder.ensembleProvider(new ExhibitorEnsembleProvider(
-                new Exhibitors(exhibitorServers, Utils.getInt(conf.get(Config.STORM_EXHIBITOR_PORT), 8080),
+                new Exhibitors(exhibitorServers, Utils.getInt(conf.get(Config.STORM_EXHIBITOR_PORT)),
                     new Exhibitors.BackupConnectionStringProvider() {
                         @Override
                         public String getBackupConnectionString() throws Exception {
@@ -422,7 +425,7 @@ public class Utils {
                             return zkStr;
                         }}),
                 new DefaultExhibitorRestClient(),
-                (String) Utils.get(conf, Config.STORM_EXHIBITOR_URIPATH, "/exhibitor/v1/cluster/list"),
+                Utils.getString(conf.get(Config.STORM_EXHIBITOR_URIPATH)),
                 Utils.getInt(conf.get(Config.STORM_EXHIBITOR_POLL)),
                 new StormBoundedExponentialBackoffRetry(
                     Utils.getInt(conf.get(Config.STORM_EXHIBITOR_RETRY_INTERVAL)),
@@ -440,7 +443,7 @@ public class Utils {
                         Utils.getInt(conf.get(Config.STORM_ZOOKEEPER_RETRY_TIMES))));
 
         if(auth!=null && auth.scheme!=null && auth.payload!=null) {
-            builder = builder.authorization(auth.scheme, auth.payload);
+            builder.authorization(auth.scheme, auth.payload);
         }
     }
 
