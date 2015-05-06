@@ -27,6 +27,7 @@ public class SpoutConfig extends KafkaConfig implements Serializable {
     public String zkRoot = null;
     public String id = null;
     public long stateUpdateIntervalMs = 2000;
+    public long maxPartitionPending = Long.MAX_VALUE;
 
     public SpoutConfig(BrokerHosts hosts, String topic, String zkRoot, String id) {
         super(hosts, topic);

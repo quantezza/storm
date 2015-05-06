@@ -23,11 +23,9 @@ import backtype.storm.metric.api.CountMetric;
 import backtype.storm.metric.api.MeanReducer;
 import backtype.storm.metric.api.ReducedMetric;
 import backtype.storm.spout.SpoutOutputCollector;
-import backtype.storm.utils.Utils;
 import com.google.common.collect.ImmutableMap;
 import kafka.javaapi.consumer.SimpleConsumer;
 import kafka.javaapi.message.ByteBufferMessageSet;
-import kafka.message.ByteBufferMessageSet$;
 import kafka.message.MessageAndOffset;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +33,14 @@ import storm.kafka.KafkaSpout.EmitState;
 import storm.kafka.KafkaSpout.MessageAndRealOffset;
 import storm.kafka.trident.MaxMetric;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.SortedSet;
+import java.util.TreeSet;
+
+import static com.google.common.base.Preconditions.checkState;
 
 public class PartitionManager {
     public static final Logger LOG = LoggerFactory.getLogger(PartitionManager.class);
@@ -55,7 +60,7 @@ public class PartitionManager {
     DynamicPartitionConnections _connections;
     ZkState _state;
     Map _stormConf;
-    long numberFailed, numberAcked;
+    long numberFailed, numberAcked, numberEmitted;
     public PartitionManager(DynamicPartitionConnections connections, String topologyInstanceId, ZkState state, Map stormConf, SpoutConfig spoutConfig, Partition id) {
         _partition = id;
         _connections = connections;
@@ -64,7 +69,9 @@ public class PartitionManager {
         _consumer = connections.register(id.host, id.partition);
         _state = state;
         _stormConf = stormConf;
-        numberAcked = numberFailed = 0;
+        numberAcked = numberFailed = numberEmitted = 0;
+
+        checkState(_spoutConfig.maxPartitionPending > 0, "maxPartitionPending not greater than zero");
 
         String jsonTopologyId = null;
         Long jsonOffset = null;
@@ -120,6 +127,11 @@ public class PartitionManager {
 
     //returns false if it's reached the end of current batch
     public EmitState next(SpoutOutputCollector collector) {
+        if (isMaxPartitionPendingExceeded()) {
+            // note: for schemes that produce multiple tuples *per* kafka message
+            // we may emit more than the configured maxPartitionPending.
+            return EmitState.NO_EMITTED;
+        }
         if (_waitingToEmit.isEmpty()) {
             fill();
         }
@@ -132,17 +144,26 @@ public class PartitionManager {
             if (tups != null) {
                 for (List<Object> tup : tups) {
                     collector.emit(tup, new KafkaMessageId(_partition, toEmit.offset));
+                    ++numberEmitted;
                 }
                 break;
             } else {
                 ack(toEmit.offset);
             }
         }
+        if (isMaxPartitionPendingExceeded()) {
+            // signal caller to cycle to next partition...
+            return EmitState.EMITTED_END;
+        }
         if (!_waitingToEmit.isEmpty()) {
             return EmitState.EMITTED_MORE_LEFT;
         } else {
             return EmitState.EMITTED_END;
         }
+    }
+
+    private boolean isMaxPartitionPendingExceeded() {
+        return _spoutConfig.maxPartitionPending <= numberEmitted - (numberAcked + numberFailed);
     }
 
     private void fill() {
