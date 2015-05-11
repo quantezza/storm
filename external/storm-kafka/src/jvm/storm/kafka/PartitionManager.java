@@ -195,7 +195,8 @@ public class PartitionManager {
         long end = System.nanoTime();
         long millis = (end - start) / 1000000;
         LOG.trace("fetchMessages, partition={}/{}, topic={} => {} bytes in {}ms",
-            _partition.host, _partition.getId(), _spoutConfig.topic, msgs.sizeInBytes(), millis);
+            _partition.host, _partition.getId(), _spoutConfig.topic,
+            msgs == null ? "<null>" : msgs.sizeInBytes(), millis);
         _fetchAPILatencyMax.update(millis);
         _fetchAPILatencyMean.update(millis);
         _fetchAPICallCount.incr();
