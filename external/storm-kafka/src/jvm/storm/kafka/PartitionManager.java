@@ -34,9 +34,11 @@ import storm.kafka.KafkaSpout.MessageAndRealOffset;
 import storm.kafka.trident.MaxMetric;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
@@ -51,6 +53,7 @@ public class PartitionManager {
     Long _emittedToOffset;
     SortedSet<Long> _pending = new TreeSet<Long>();
     SortedSet<Long> failed = new TreeSet<Long>();
+    Set<Long> _emittedOutstanding = new HashSet<Long>();
     Long _committedTo;
     LinkedList<MessageAndRealOffset> _waitingToEmit = new LinkedList<MessageAndRealOffset>();
     Partition _partition;
@@ -148,7 +151,7 @@ public class PartitionManager {
                     LOG.trace("emitting, partition={}/{}, topic={} => {}/{}", _partition.host, _partition.getId(),
                         _spoutConfig.topic, _partition, toEmit.offset);
                     collector.emit(tup, new KafkaMessageId(_partition, toEmit.offset));
-                    ++numberEmitted;
+                    _emittedOutstanding.add(toEmit.offset);
                 }
                 break;
             } else {
@@ -167,7 +170,7 @@ public class PartitionManager {
     }
 
     private boolean isMaxPartitionPendingExceeded() {
-        return _spoutConfig.maxPartitionPending <= numberEmitted - (numberAcked + numberFailed);
+        return _spoutConfig.maxPartitionPending <= _emittedOutstanding.size();
     }
 
     private void fill() {
@@ -183,52 +186,72 @@ public class PartitionManager {
             offset = _emittedToOffset;
         }
 
-        ByteBufferMessageSet msgs = null;
-        try {
-            msgs = KafkaUtils.fetchMessages(_spoutConfig, _consumer, _partition, offset);
-        } catch (UpdateOffsetException e) {
-            _emittedToOffset = KafkaUtils.getOffset(_consumer, _spoutConfig.topic, _partition.partition, _spoutConfig);
-            LOG.warn("Using new offset: {}", _emittedToOffset);
-            // fetch failed, so don't update the metrics
-            return;
-        }
-        long end = System.nanoTime();
-        long millis = (end - start) / 1000000;
-        LOG.trace("fetchMessages, partition={}/{}, topic={} => {} bytes in {}ms",
-            _partition.host, _partition.getId(), _spoutConfig.topic,
-            msgs == null ? "<null>" : msgs.sizeInBytes(), millis);
-        _fetchAPILatencyMax.update(millis);
-        _fetchAPILatencyMean.update(millis);
-        _fetchAPICallCount.incr();
-        if (msgs != null) {
-            int numMessages = 0;
-
-            for (MessageAndOffset msg : msgs) {
-                LOG.trace("msg.offset={}, fetch_offset={}, skipped={}, partition={}/{}, topic={} =>",
-                    msg.offset(), offset, msg.offset() < offset, _partition.host, _partition.getId(), _spoutConfig.topic);
-                final Long cur_offset = msg.offset();
-                if (cur_offset < offset) {
-                    // Skip any old offsets.
-                    continue;
-                }
-                if (!had_failed || failed.contains(cur_offset)) {
-                    numMessages += 1;
-                    _pending.add(cur_offset);
-                    _waitingToEmit.add(new MessageAndRealOffset(msg.message(), cur_offset));
-                    _emittedToOffset = Math.max(msg.nextOffset(), _emittedToOffset);
-                    if (had_failed) {
-                        failed.remove(cur_offset);
-                    }
-                    LOG.trace("fill/added, partition={}/{}, topic={} => {}", _partition.host, _partition.getId(), _spoutConfig.topic,
-                        cur_offset);
-                }
+        int currFetchSize = _spoutConfig.fetchSizeBytes;
+        while (true) {
+            ByteBufferMessageSet msgs = null;
+            try {
+                msgs = KafkaUtils.fetchMessages(_spoutConfig, _consumer, _partition, offset, currFetchSize);
+            } catch (UpdateOffsetException e) {
+                _emittedToOffset = KafkaUtils.getOffset(_consumer, _spoutConfig.topic, _partition.partition, _spoutConfig);
+                LOG.warn("Using new offset: {}", _emittedToOffset);
+                // fetch failed, so don't update the metrics
+                return;
             }
-            _fetchAPIMessageCount.incrBy(numMessages);
-            LOG.trace("fill/added-total, partition={}/{}, topic={} => {}", _partition.host, _partition.getId(), _spoutConfig.topic, numMessages);
+            long end = System.nanoTime();
+            long millis = (end - start) / 1000000;
+            LOG.trace("fetchMessages, partition={}/{}, topic={} => {} bytes in {}ms",
+                _partition.host, _partition.getId(), _spoutConfig.topic,
+                msgs == null ? "<null>" : msgs.sizeInBytes(), millis);
+            _fetchAPILatencyMax.update(millis);
+            _fetchAPILatencyMean.update(millis);
+            _fetchAPICallCount.incr();
+            if (msgs == null) {
+                return;
+            }
+            if (!internalFill(offset, had_failed, msgs)) {
+                currFetchSize *= 2; // double it expecting to get a full message.
+                LOG.warn("message exceeded fetchSizeBytes, will momentarily use fetch size of {}", currFetchSize);
+                continue;
+            }
+            break; // at least one full message was retrieved; break from loop and return.
         }
     }
 
+    /** Answers true iff on the provided <code>msgs</code> contained at least one full message. */
+    private boolean internalFill(long offset, boolean had_failed, ByteBufferMessageSet msgs) {
+        boolean answer = false;
+
+        int numMessages = 0;
+
+        for (MessageAndOffset msg : msgs) {
+            answer = true; // we got one full message; mark answer
+            LOG.trace("msg.offset={}, fetch_offset={}, skipped={}, partition={}/{}, topic={} =>",
+                msg.offset(), offset, msg.offset() < offset, _partition.host, _partition.getId(), _spoutConfig.topic);
+            final Long cur_offset = msg.offset();
+            if (cur_offset < offset) {
+                // Skip any old offsets.
+                continue;
+            }
+            if (!had_failed || failed.contains(cur_offset)) {
+                numMessages += 1;
+                _pending.add(cur_offset);
+                _waitingToEmit.add(new MessageAndRealOffset(msg.message(), cur_offset));
+                _emittedToOffset = Math.max(msg.nextOffset(), _emittedToOffset);
+                if (had_failed) {
+                    failed.remove(cur_offset);
+                }
+                LOG.trace("fill/added, partition={}/{}, topic={} => {}", _partition.host, _partition.getId(), _spoutConfig.topic,
+                    cur_offset);
+            }
+        }
+        _fetchAPIMessageCount.incrBy(numMessages);
+        LOG.trace("fill/added-total, partition={}/{}, topic={} => {}", _partition.host, _partition.getId(), _spoutConfig.topic, numMessages);
+
+        return answer;
+    }
+
     public void ack(Long offset) {
+        _emittedOutstanding.remove(offset);
         if (!_pending.isEmpty() && _pending.first() < offset - _spoutConfig.maxOffsetBehind) {
             // Too many things pending!
             _pending.headSet(offset - _spoutConfig.maxOffsetBehind).clear();
@@ -238,6 +261,7 @@ public class PartitionManager {
     }
 
     public void fail(Long offset) {
+        _emittedOutstanding.remove(offset);
         if (offset < _emittedToOffset - _spoutConfig.maxOffsetBehind) {
             LOG.info(
                     "Skipping failed tuple at offset=" + offset +

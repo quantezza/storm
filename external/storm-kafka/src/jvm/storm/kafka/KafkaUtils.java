@@ -161,21 +161,25 @@ public class KafkaUtils {
     }
 
     public static ByteBufferMessageSet fetchMessages(KafkaConfig config, SimpleConsumer consumer, Partition partition, long offset) throws UpdateOffsetException {
+        return fetchMessages(config, consumer, partition, offset, config.fetchSizeBytes);
+    }
+
+    public static ByteBufferMessageSet fetchMessages(KafkaConfig config, SimpleConsumer consumer, Partition partition, long offset, int fetchSizeBytes) throws UpdateOffsetException {
         ByteBufferMessageSet msgs = null;
         String topic = config.topic;
         int partitionId = partition.partition;
         FetchRequestBuilder builder = new FetchRequestBuilder();
         FetchRequest fetchRequest = builder.addFetch(topic, partitionId, offset, config.fetchSizeBytes).
-                clientId(config.clientId).maxWait(config.fetchMaxWait).build();
+            clientId(config.clientId).maxWait(config.fetchMaxWait).build();
         FetchResponse fetchResponse;
         try {
             fetchResponse = consumer.fetch(fetchRequest);
         } catch (Exception e) {
             if (e instanceof ConnectException ||
-                    e instanceof SocketTimeoutException ||
-                    e instanceof IOException ||
-                    e instanceof UnresolvedAddressException
-                    ) {
+                e instanceof SocketTimeoutException ||
+                e instanceof IOException ||
+                e instanceof UnresolvedAddressException
+                ) {
                 LOG.warn("Network error when fetching messages:", e);
                 throw new FailedFetchException(e);
             } else {
@@ -186,8 +190,8 @@ public class KafkaUtils {
             KafkaError error = KafkaError.getError(fetchResponse.errorCode(topic, partitionId));
             if (error.equals(KafkaError.OFFSET_OUT_OF_RANGE) && config.useStartOffsetTimeIfOffsetOutOfRange) {
                 LOG.warn("Got fetch request with offset out of range: [" + offset + "]; " +
-                        "retrying with default start offset time from configuration. " +
-                        "configured start offset time: [" + config.startOffsetTime + "]");
+                    "retrying with default start offset time from configuration. " +
+                    "configured start offset time: [" + config.startOffsetTime + "]");
                 throw new UpdateOffsetException();
             } else {
                 String message = "Error fetching data from [" + partition + "] for topic [" + topic + "]: [" + error + "]";
