@@ -144,6 +144,7 @@ public class KafkaUtils {
                     ret.put("totalLatestTimeOffset", totalLatestTimeOffset);
                     ret.put("totalLatestEmittedOffset", totalLatestEmittedOffset);
                     if (spoutLags.size() > 0) {
+                        ret.put("partitionSpoutLag-100p", percentile(spoutLags, 100));
                         ret.put("partitionSpoutLag-99p", percentile(spoutLags, 99));
                         ret.put("partitionSpoutLag-95p", percentile(spoutLags, 95));
                         ret.put("partitionSpoutLag-90p", percentile(spoutLags, 90));
