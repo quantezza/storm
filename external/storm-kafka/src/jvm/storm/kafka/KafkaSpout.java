@@ -141,7 +141,7 @@ public class KafkaSpout extends BaseRichSpout {
 
     @Override
     public void nextTuple() {
-        LOG.trace("nextTuple, {}", _thisTaskIndex);
+        LOG.trace("nextTuple, task={}, topic={}", _thisTaskIndex, _spoutConfig.topic);
         List<PartitionManager> managers = _coordinator.getMyManagedPartitions();
         for (int i = 0; i < managers.size(); i++) {
 
@@ -149,7 +149,7 @@ public class KafkaSpout extends BaseRichSpout {
                 // in case the number of managers decreased
                 _currPartitionIndex = _currPartitionIndex % managers.size();
                 EmitState state = managers.get(_currPartitionIndex).next(_collector);
-                LOG.trace("managers.get({}).next, {} => {}", _currPartitionIndex, _thisTaskIndex, state);
+                LOG.trace("managers.get({}).next, task={}, topic={} => {}", _currPartitionIndex, _thisTaskIndex, _spoutConfig.topic, state);
                 if (state != EmitState.EMITTED_MORE_LEFT) {
                     _currPartitionIndex = (_currPartitionIndex + 1) % managers.size();
                 }
