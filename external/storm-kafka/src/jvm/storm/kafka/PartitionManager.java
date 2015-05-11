@@ -137,12 +137,16 @@ public class PartitionManager {
         }
         while (true) {
             MessageAndRealOffset toEmit = _waitingToEmit.pollFirst();
+            LOG.trace("toEmit, partition={}/{}, topic={} => msg+{}", _partition.host, _partition.getId(),
+                _spoutConfig.topic, toEmit == null ? "<null>" : toEmit.offset);
             if (toEmit == null) {
                 return EmitState.NO_EMITTED;
             }
             Iterable<List<Object>> tups = KafkaUtils.generateTuples(_spoutConfig, toEmit.msg);
             if (tups != null) {
                 for (List<Object> tup : tups) {
+                    LOG.trace("emitting, partition={}/{}, topic={} => {}/{}", _partition.host, _partition.getId(),
+                        _spoutConfig.topic, _partition, toEmit.offset);
                     collector.emit(tup, new KafkaMessageId(_partition, toEmit.offset));
                     ++numberEmitted;
                 }
@@ -199,6 +203,8 @@ public class PartitionManager {
             int numMessages = 0;
 
             for (MessageAndOffset msg : msgs) {
+                LOG.trace("msg.offset={}, fetch_offset={}, skipped={}, partition={}/{}, topic={} =>",
+                    msg.offset(), offset, msg.offset() < offset, _partition.host, _partition.getId(), _spoutConfig.topic);
                 final Long cur_offset = msg.offset();
                 if (cur_offset < offset) {
                     // Skip any old offsets.
@@ -212,9 +218,12 @@ public class PartitionManager {
                     if (had_failed) {
                         failed.remove(cur_offset);
                     }
+                    LOG.trace("fill/added, partition={}/{}, topic={} => {}", _partition.host, _partition.getId(), _spoutConfig.topic,
+                        cur_offset);
                 }
             }
             _fetchAPIMessageCount.incrBy(numMessages);
+            LOG.trace("fill/added-total, partition={}/{}, topic={} => {}", _partition.host, _partition.getId(), _spoutConfig.topic, numMessages);
         }
     }
 
