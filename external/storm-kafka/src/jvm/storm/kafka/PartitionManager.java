@@ -167,6 +167,7 @@ public class PartitionManager {
     }
 
     private void fill() {
+        LOG.trace("fill, {}/{}", _partition.host, _partition.getId());
         long start = System.nanoTime();
         long offset;
         final boolean had_failed = !failed.isEmpty();
@@ -189,6 +190,7 @@ public class PartitionManager {
         }
         long end = System.nanoTime();
         long millis = (end - start) / 1000000;
+        LOG.trace("fetchMessages, {}/{} => {} bytes in {}ms", _partition.host, _partition.getId(), msgs.sizeInBytes(), millis);
         _fetchAPILatencyMax.update(millis);
         _fetchAPILatencyMean.update(millis);
         _fetchAPICallCount.incr();

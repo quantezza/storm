@@ -28,7 +28,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import storm.kafka.PartitionManager.KafkaMessageId;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 // TODO: need to add blacklisting
 // TODO: need to make a best effort to not re-emit messages if don't have to
@@ -62,6 +67,8 @@ public class KafkaSpout extends BaseRichSpout {
 
     int _currPartitionIndex = 0;
 
+    int _thisTaskIndex = -1;
+
     public KafkaSpout(SpoutConfig spoutConf) {
         _spoutConfig = spoutConf;
     }
@@ -69,6 +76,8 @@ public class KafkaSpout extends BaseRichSpout {
     @Override
     public void open(Map conf, final TopologyContext context, final SpoutOutputCollector collector) {
         _collector = collector;
+
+        _thisTaskIndex = context.getThisTaskIndex();
 
         Map stateConf = new HashMap(conf);
         List<String> zkServers = _spoutConfig.zkServers;
@@ -132,6 +141,7 @@ public class KafkaSpout extends BaseRichSpout {
 
     @Override
     public void nextTuple() {
+        LOG.trace("nextTuple, {}", _thisTaskIndex);
         List<PartitionManager> managers = _coordinator.getMyManagedPartitions();
         for (int i = 0; i < managers.size(); i++) {
 
@@ -139,6 +149,7 @@ public class KafkaSpout extends BaseRichSpout {
                 // in case the number of managers decreased
                 _currPartitionIndex = _currPartitionIndex % managers.size();
                 EmitState state = managers.get(_currPartitionIndex).next(_collector);
+                LOG.trace("managers.get({}).next, {} => {}", _currPartitionIndex, _thisTaskIndex, state);
                 if (state != EmitState.EMITTED_MORE_LEFT) {
                     _currPartitionIndex = (_currPartitionIndex + 1) % managers.size();
                 }
