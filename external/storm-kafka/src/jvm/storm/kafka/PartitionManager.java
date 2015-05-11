@@ -205,7 +205,8 @@ public class PartitionManager {
             _fetchAPILatencyMax.update(millis);
             _fetchAPILatencyMean.update(millis);
             _fetchAPICallCount.incr();
-            if (msgs == null) {
+            if (msgs == null || msgs.sizeInBytes() <= 0) {
+                // partition simply has no data after our requested offset.
                 return;
             }
             if (!internalFill(offset, had_failed, msgs)) {
@@ -217,7 +218,7 @@ public class PartitionManager {
         }
     }
 
-    /** Answers true iff on the provided <code>msgs</code> contained at least one full message. */
+    /** Answers true iff the provided <code>msgs</code> contained at least one full message. */
     private boolean internalFill(long offset, boolean had_failed, ByteBufferMessageSet msgs) {
         boolean answer = false;
 
