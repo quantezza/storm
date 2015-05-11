@@ -42,6 +42,7 @@ import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.channels.UnresolvedAddressException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -111,6 +112,7 @@ public class KafkaUtils {
                 long totalLatestEmittedOffset = 0;
                 HashMap ret = new HashMap();
                 if (_partitions != null && _partitions.size() == _partitionToOffset.size()) {
+                    List<Long> spoutLags = new ArrayList<Long>();
                     for (Map.Entry<Partition, Long> e : _partitionToOffset.entrySet()) {
                         Partition partition = e.getKey();
                         SimpleConsumer consumer = _connections.getConnection(partition);
@@ -120,12 +122,14 @@ public class KafkaUtils {
                         }
                         long latestTimeOffset = getOffset(consumer, _topic, partition.partition, kafka.api.OffsetRequest.LatestTime());
                         long earliestTimeOffset = getOffset(consumer, _topic, partition.partition, kafka.api.OffsetRequest.EarliestTime());
+                        /*
                         if (latestTimeOffset == 0) {
                             LOG.debug("No data found in Kafka Partition " + partition.getId());
                             return null;
-                        }
+                        }*/
                         long latestEmittedOffset = e.getValue();
                         long spoutLag = latestTimeOffset - latestEmittedOffset;
+                        spoutLags.add(spoutLag);
                         ret.put(partition.getId() + "/" + "spoutLag", spoutLag);
                         ret.put(partition.getId() + "/" + "earliestTimeOffset", earliestTimeOffset);
                         ret.put(partition.getId() + "/" + "latestTimeOffset", latestTimeOffset);
@@ -139,6 +143,12 @@ public class KafkaUtils {
                     ret.put("totalEarliestTimeOffset", totalEarliestTimeOffset);
                     ret.put("totalLatestTimeOffset", totalLatestTimeOffset);
                     ret.put("totalLatestEmittedOffset", totalLatestEmittedOffset);
+                    if (spoutLags.size() > 0) {
+                        ret.put("partitionSpoutLag-99p", percentile(spoutLags, 99));
+                        ret.put("partitionSpoutLag-95p", percentile(spoutLags, 95));
+                        ret.put("partitionSpoutLag-90p", percentile(spoutLags, 90));
+                        ret.put("partitionSpoutLag-75p", percentile(spoutLags, 75));
+                    }
                     return ret;
                 } else {
                     LOG.info("Metrics Tick: Not enough data to calculate spout lag.");
@@ -157,6 +167,20 @@ public class KafkaUtils {
                     it.remove();
                 }
             }
+        }
+
+        private static long percentile(List<Long> values, int percent) {
+            if (values.size() <= 0) {
+                throw new IllegalArgumentException("empty values");
+            }
+            if (percent <= 0 || percent > 100) {
+                throw new IllegalArgumentException("percent not in [0,100)");
+            }
+            Collections.sort(values);
+            final double index = (values.size() - 1) * (percent / 100d);
+            return (index == Math.floor(index))
+                ? values.get((int) Math.floor(index))
+                : (values.get((int) Math.floor(index)) + values.get((int) Math.ceil(index))) / 2;
         }
     }
 
